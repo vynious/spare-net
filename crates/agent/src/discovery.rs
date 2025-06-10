@@ -69,6 +69,21 @@ impl DiscoveryService {
         })
     }
 
+    /// run the discovery service
+    /// we pass self as an Arc because the uses itself to run the functions
+    pub async fn run(self: Arc<Self>) {
+        // clone out into locals so they live long enough
+        let svc_listen   = self.clone();
+        let svc_announce = self.clone();
+        let svc_sweep    = self.clone();
+
+        tokio::join!(
+            svc_listen.listen_to_peers(),
+            svc_announce.announce_presence(),
+            svc_sweep.sweep_timeout_peers(),
+        );
+    }
+
     /// listen to incoming broadcast from the multicast address and store into peer map
     async fn listen_to_peers(&self) {
         let mut buf = [0u8; 1024];
