@@ -1,7 +1,7 @@
 use libp2p::{futures::lock::Mutex, PeerId};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use std::{collections::HashMap, error::Error, sync::Arc, time::Instant};
+use std::{collections::HashMap, error::Error, f128::consts::E, sync::Arc, time::Instant};
 use tokio::net::UdpSocket;
 
 // in-memory representation
@@ -67,22 +67,40 @@ impl DiscoveryService {
     async fn listen_to_peers(&self) {
         let mut buf = [0u8; 1024];
         loop {
-            match self.socket.recv_from(&mut buf).await {
-                Ok((len, _)) => {
-                    if let Ok(peer_wire) = bincode::deserialize::<PeerInfoWire>(&buf[..len]) {
-                        match PeerInfo::try_from(peer_wire) {
-                            Ok(peer_info) => {
-                                let mut peers = self.peers.lock().await;
-                                peers.insert(peer_info.peer_id, (peer_info, Instant::now()));
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to parse PeerInfoWire to PeerInfo: {}", e);
-                            }
-                        }
-                    }
+            // read from udp socket into mutable buffer of 1024 byte
+            let (len, _src) = match self.socket.recv_from(&mut buf).await {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("Error reading from socket: {}", e);
+                    continue;
                 }
-                Err(e) => eprintln!("Receive error: {}", e),
-            }
+            };
+
+            // deserialize bytes -> peer info wire
+            let peer_info_wire = match bincode::deserialize::<PeerInfoWire>(&buf[..len]) {
+                Ok(piw) => piw,
+                Err(e) => {
+                    eprintln!("Failed to deserialize bytes into PeerInfoWire: {}", e);
+                    continue;
+                } 
+            };
+
+            // convert peer info wire to peer info
+            let peer_info = match PeerInfo::try_from(peer_info_wire) {
+                Ok(pi) => pi,
+                Err(e) => {
+                    eprintln!("Failed to parse PeerInfoWire to PeerInfo: {}", e);
+                    continue;
+                }
+            };
+
+            // once passed all, acquire lock and insert into map
+            let mut peers_map = self.peers.lock().await;
+            peers_map.insert(peer_info.peer_id, (peer_info, Instant::now()));
         }
+    }
+
+    async fn send_to_peers(&self) {
+
     }
 }
