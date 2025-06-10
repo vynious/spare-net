@@ -131,6 +131,13 @@ impl DiscoveryService {
             // check if the last seen is more than the peer timeout duration
             peers_map.retain(|_, (_, seen)| seen.elapsed() <= PEER_TIMEOUT);
         }
+    }
 
+    /// retrieve the existing peers in the discovery service
+    pub async fn get_peers(&self)-> Vec<PeerInfo> {
+        let peers_map = self.peers.lock().await;
+        peers_map.iter()
+            .map(|(_peer_id, (peer_info,_instant))| peer_info.clone())
+            .collect()
     }
 }
