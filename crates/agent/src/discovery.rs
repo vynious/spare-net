@@ -1,11 +1,16 @@
 use libp2p::{futures::lock::Mutex, PeerId};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use std::{collections::HashMap, error::Error, f128::consts::E, sync::Arc, time::Instant};
-use tokio::net::UdpSocket;
+use std::{collections::HashMap, error::Error, sync::Arc, time::{Duration, Instant}};
+use tokio::{net::UdpSocket, time};
+
+
+const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
+const PEER_TIMEOUT: Duration = Duration::from_secs(5);
+const MULTICAST_ADDR: &str = "224.0.0.251:5353";
 
 // in-memory representation
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
     pub spare_mbs: u16,
@@ -100,7 +105,19 @@ impl DiscoveryService {
         }
     }
 
-    async fn send_to_peers(&self) {
 
+    async fn announce_presence(&self) {
+        let piw = PeerInfoWire::from(self.peer_info.clone());
+        let data = bincode::serialize(&piw).unwrap();
+        let mut interval = time::interval(ANNOUNCE_INTERVAL);
+        
+        // run intervals to broadcast one's peer info wire
+        loop {
+            interval.tick().await;
+            // send peer info wire in bytes to multicast address
+            if let Err(e) = self.socket.send_to(&data, MULTICAST_ADDR).await {
+                eprintln!("Broadcast error: {}", e);
+            }
+        }
     }
 }
