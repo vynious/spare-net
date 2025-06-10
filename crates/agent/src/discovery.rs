@@ -9,7 +9,7 @@ const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
 const PEER_TIMEOUT: Duration = Duration::from_secs(5);
 const MULTICAST_ADDR: &str = "224.0.0.251:5353";
 
-// in-memory representation
+/// in-memory representation
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
@@ -17,7 +17,7 @@ pub struct PeerInfo {
     pub price: f32,
 }
 
-// wire representation
+/// wire representation
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerInfoWire {
     pub peer_id_bytes: ByteBuf,
@@ -25,7 +25,7 @@ pub struct PeerInfoWire {
     pub price: f32,
 }
 
-// convert PeerInfo into PeerInfoWire (in-memory -> wire)
+/// convert PeerInfo into PeerInfoWire (in-memory -> wire)
 impl From<PeerInfo> for PeerInfoWire {
     fn from(pi: PeerInfo) -> Self {
         PeerInfoWire {
@@ -36,7 +36,7 @@ impl From<PeerInfo> for PeerInfoWire {
     }
 }
 
-// convert PeerInfoWire into PeerInfo (wire -> in-memory)
+/// convert PeerInfoWire into PeerInfo (wire -> in-memory)
 impl TryFrom<PeerInfoWire> for PeerInfo {
     type Error = libp2p::identity::ParseError;
     fn try_from(w: PeerInfoWire) -> Result<Self, Self::Error> {
@@ -56,7 +56,7 @@ pub struct DiscoveryService {
 }
 
 impl DiscoveryService {
-    // creates a new discovery service based on the peer_info
+    /// creates a new discovery service based on the peer_info
     pub async fn new(peer_info: PeerInfo) -> Result<Self, Box<dyn Error>> {
         let multicast_ip = "224.0.0.251".parse()?;
         let local_ip = "0.0.0.0".parse()?;
@@ -69,7 +69,7 @@ impl DiscoveryService {
         })
     }
 
-    // listen to incoming broadcast from the multicast address and store into peer map
+    /// listen to incoming broadcast from the multicast address and store into peer map
     async fn listen_to_peers(&self) {
         let mut buf = [0u8; 1024];
         loop {
@@ -106,7 +106,7 @@ impl DiscoveryService {
         }
     }
 
-    // broadcast current peer info to multicast address for other peers
+    /// broadcast current peer info to multicast address for other peers
     async fn announce_presence(&self) {
         let piw = PeerInfoWire::from(self.peer_info.clone());
         let data = bincode::serialize(&piw).unwrap();
@@ -122,7 +122,7 @@ impl DiscoveryService {
         }
     }
 
-    // run sweeps to clear out peers that have timed out
+    /// run sweeps to clear out peers that have timed out
     async fn sweep_timeout_peers(&self) {
         let mut interval = time::interval(Duration::from_secs(1));
         loop {
