@@ -69,6 +69,7 @@ impl DiscoveryService {
         })
     }
 
+    // listen to incoming broadcast from the multicast address and store into peer map
     async fn listen_to_peers(&self) {
         let mut buf = [0u8; 1024];
         loop {
@@ -105,7 +106,7 @@ impl DiscoveryService {
         }
     }
 
-
+    // broadcast current peer info to multicast address for other peers
     async fn announce_presence(&self) {
         let piw = PeerInfoWire::from(self.peer_info.clone());
         let data = bincode::serialize(&piw).unwrap();
@@ -119,5 +120,17 @@ impl DiscoveryService {
                 eprintln!("Broadcast error: {}", e);
             }
         }
+    }
+
+    // run sweeps to clear out peers that have timed out
+    async fn sweep_timeout_peers(&self) {
+        let mut interval = time::interval(Duration::from_secs(1));
+        loop {
+            interval.tick().await;
+            let mut peers_map = self.peers.lock().await;
+            // check if the last seen is more than the peer timeout duration
+            peers_map.retain(|_, (_, seen)| seen.elapsed() <= PEER_TIMEOUT);
+        }
+
     }
 }
