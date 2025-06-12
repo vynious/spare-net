@@ -137,14 +137,18 @@ impl DiscoveryService {
         }
     }
 
-    /// run sweeps to clear out peers that have timed out
+    /// Remove any stale peers *once*.
+    pub async fn sweep_once(&self) {
+        let mut peers_map = self.peers.lock().await;
+        peers_map.retain(|_, (_, seen)| seen.elapsed() <= PEER_TIMEOUT);
+    }
+
+    /// Continuously run `sweep_once` every second.
     async fn sweep_timeout_peers(&self) {
         let mut interval = time::interval(Duration::from_secs(1));
         loop {
             interval.tick().await;
-            let mut peers_map = self.peers.lock().await;
-            // check if the last seen is more than the peer timeout duration
-            peers_map.retain(|_, (_, seen)| seen.elapsed() <= PEER_TIMEOUT);
+            self.sweep_once().await;
         }
     }
 
@@ -161,14 +165,13 @@ impl DiscoveryService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::time;
+    use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
+    /// testing for serializing and deserializing peer info wire
     async fn peer_info_wire_roundtrip(){
-        let pi = PeerInfo {
-            peer_id: PeerId::random(),
-            spare_mbs: 197,
-            price: 3.14,
-        };
+        let pi = test_peer_info();
         let wire: PeerInfoWire = pi.clone().into();
         let bytes = bincode::serialize(&wire).unwrap();
         let wire2: PeerInfoWire = bincode::deserialize(&bytes).unwrap();
@@ -178,4 +181,22 @@ mod tests {
         assert_eq!(pi.price, pi2.price);
     }
 
+    #[tokio::test]
+    /// sweep stale peer
+    async fn sweep_stale_peer() {
+        time::pause();
+        let svc = Arc::new(DiscoveryService::new(test_peer_info()).await.unwrap());
+        // run in block to drop reference and unlock the peers map
+        {
+            let mut map = svc.peers.lock().await;
+            let pi = test_peer_info();
+            map.insert(pi.peer_id, (pi, Instant::now() - Duration::from_secs(PEER_TIMEOUT.as_secs()+1)));
+        }
+        svc.sweep_once().await;
+        assert!(svc.get_peers().await.is_empty());
+    }
+
+    fn test_peer_info() -> PeerInfo {
+        PeerInfo { peer_id: PeerId::random(), spare_mbs: 11, price: 11.0 }
+    }
 }
