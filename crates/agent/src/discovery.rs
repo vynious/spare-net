@@ -156,3 +156,26 @@ impl DiscoveryService {
             .collect()
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn peer_info_wire_roundtrip(){
+        let pi = PeerInfo {
+            peer_id: PeerId::random(),
+            spare_mbs: 197,
+            price: 3.14,
+        };
+        let wire: PeerInfoWire = pi.clone().into();
+        let bytes = bincode::serialize(&wire).unwrap();
+        let wire2: PeerInfoWire = bincode::deserialize(&bytes).unwrap();
+        let pi2  = PeerInfo::try_from(wire2).unwrap();
+        assert_eq!(pi.peer_id, pi2.peer_id);
+        assert_eq!(pi.spare_mbs, pi2.spare_mbs);
+        assert_eq!(pi.price, pi2.price);
+    }
+
+}
