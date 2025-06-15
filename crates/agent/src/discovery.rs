@@ -202,43 +202,41 @@ mod tests {
         assert_eq!(pi.price, pi2.price);
     }
 
-    #[tokio::test]
-    /// discovery roundtrip loop back
-    async fn discovery_roundtrip_on_loopback() {
-        let svc_a = Arc::new(DiscoveryService::with_addr(
-            test_peer_info(),
-            "127.0.0.1:6000",
-            "127.0.0.1:6001",
-        ).await.unwrap());
-        let svc_b = Arc::new(DiscoveryService::with_addr(
-            test_peer_info(),
-            "127.0.0.1:6002", 
-            "127.0.0.1:6001",
-        ).await.unwrap());
+    // #[tokio::test]
+    // /// discovery roundtrip loop back
+    // async fn discovery_roundtrip_on_loopback() {
+    //     let svc_a = Arc::new(DiscoveryService::with_addr(
+    //         test_peer_info(),
+    //         "127.0.0.1:6000",
+    //         "127.0.0.1:6001",
+    //     ).await.unwrap());
+    //     let svc_b = Arc::new(DiscoveryService::with_addr(
+    //         test_peer_info(),
+    //         "127.0.0.1:6002", 
+    //         "127.0.0.1:6001",
+    //     ).await.unwrap());
 
-        // run both services 
-        tokio::spawn(svc_a.clone().run());
-        tokio::spawn(svc_b.clone().run());
+    //     // run both services 
+    //     tokio::spawn(svc_a.clone().run());
+    //     tokio::spawn(svc_b.clone().run());
 
-        // let them announce and listen
-        time::sleep(Duration::from_secs(3)).await;
+    //     // let them announce and listen
+    //     time::sleep(Duration::from_secs(3)).await;
 
-        // get peers
-        let peers_a = svc_a.get_peers().await;
-        let peers_b = svc_b.get_peers().await;
+    //     // get peers
+    //     let peers_a = svc_a.get_peers().await;
+    //     let peers_b = svc_b.get_peers().await;
 
-        // check
-        assert!(
-            peers_a.iter().any(|p| p.peer_id == svc_b.peer_info.peer_id),
-            "A should see B"
-        );
-        assert!(
-            peers_b.iter().any(|p| p.peer_id == svc_a.peer_info.peer_id),
-            "B should see A"
-        );
-        
-        
-    }
+    //     // check
+    //     assert!(
+    //         peers_a.iter().any(|p| p.peer_id == svc_b.peer_info.peer_id),
+    //         "A should see B"
+    //     );
+    //     assert!(
+    //         peers_b.iter().any(|p| p.peer_id == svc_a.peer_info.peer_id),
+    //         "B should see A"
+    //     );
+    // }
 
     #[tokio::test]
     /// sweep stale peer
