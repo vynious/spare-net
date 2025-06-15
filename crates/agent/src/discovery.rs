@@ -2,12 +2,9 @@ use libp2p::{futures::lock::Mutex, PeerId};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::{
-    collections::HashMap,
-    error::Error,
-    sync::Arc,
-    time::{Duration, Instant},
+    collections::HashMap, error::Error, net::SocketAddr, sync::Arc, time::{Duration, Instant}
 };
-use tokio::{net::UdpSocket, time};
+use tokio::{net::{UdpSocket}, time};
 
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
 const PEER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -57,6 +54,7 @@ pub struct DiscoveryService {
     peers: Arc<Mutex<HashMap<PeerId, (PeerInfo, Instant)>>>,
     socket: Arc<UdpSocket>,
     peer_info: PeerInfo,
+    dest: SocketAddr
 }
 
 impl DiscoveryService {
@@ -69,11 +67,11 @@ impl DiscoveryService {
     pub async fn with_addr(
         peer_info: PeerInfo,
         bind_addr: &str,
-        multicast_addr: &str,
+        dest_addr: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         
-        let mut parts = multicast_addr.split(":");
-        let mcast_ip: std::net::Ipv4Addr = parts.next().ok_or("missing multicast IP")?.parse()?;
+        let mut parts = dest_addr.split(":");
+        let dest_ip: std::net::Ipv4Addr = parts.next().ok_or("missing multicast IP")?.parse()?;
         parts.next().ok_or("missing multicast port")?;
         
         let mut parts = bind_addr.split(':');
@@ -82,12 +80,13 @@ impl DiscoveryService {
         
         // bind and join
         let socket = UdpSocket::bind(bind_addr).await?;
-        socket.join_multicast_v4(mcast_ip, local_ip)?;
+        socket.join_multicast_v4(dest_ip, local_ip)?;
 
         Ok(Self {
             peers: Arc::new(Mutex::new(HashMap::new())),
             socket: Arc::new(socket),
             peer_info,
+            dest: dest_addr.parse()?,
         })
     }
 
@@ -153,7 +152,7 @@ impl DiscoveryService {
         loop {
             interval.tick().await;
             // send peer info wire in bytes to multicast address
-            if let Err(e) = self.socket.send_to(&data, MULTICAST_ADDR).await {
+            if let Err(e) = self.socket.send_to(&data,self.dest).await {
                 eprintln!("Broadcast error: {}", e);
             }
         }
@@ -209,12 +208,12 @@ mod tests {
         let svc_a = Arc::new(DiscoveryService::with_addr(
             test_peer_info(),
             "127.0.0.1:6000",
-            "224.0.0.251:6001",  // <-- valid multicast group
+            "127.0.0.1:6001",
         ).await.unwrap());
         let svc_b = Arc::new(DiscoveryService::with_addr(
             test_peer_info(),
             "127.0.0.1:6002", 
-            "224.0.0.251:6001",  // <-- valid multicast group
+            "127.0.0.1:6001",
         ).await.unwrap());
 
         // run both services 
