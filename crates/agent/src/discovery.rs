@@ -2,7 +2,7 @@ use libp2p::{futures::lock::Mutex, PeerId};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::{
-    collections::HashMap, error::Error, net::SocketAddr, sync::Arc, time::{Duration, Instant}
+    collections::HashMap, error::Error, net::{Ipv4Addr, SocketAddr}, sync::Arc, time::{Duration, Instant}
 };
 use tokio::{net::{UdpSocket}, time};
 
@@ -63,7 +63,7 @@ impl DiscoveryService {
         Self::with_addr(peer_info, "0.0.0.0:5333", MULTICAST_ADDR).await
     }
 
-    /// test-friendly constructor that binds to specific addresses
+    /// constructor that binds to specific addresses
     pub async fn with_addr(
         peer_info: PeerInfo,
         bind_addr: &str,
@@ -82,6 +82,22 @@ impl DiscoveryService {
         let socket = UdpSocket::bind(bind_addr).await?;
         socket.join_multicast_v4(dest_ip, local_ip)?;
 
+        Ok(Self {
+            peers: Arc::new(Mutex::new(HashMap::new())),
+            socket: Arc::new(socket),
+            peer_info,
+            dest: dest_addr.parse()?,
+        })
+    }
+
+    /// [TEST ONLY] constructor to be used in testcases to circumvent the 
+    /// multicast connection issue
+    pub async fn test_with_addr(
+        peer_info: PeerInfo,
+        bind_addr: &str,
+        dest_addr: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let socket = UdpSocket::bind(bind_addr).await?;
         Ok(Self {
             peers: Arc::new(Mutex::new(HashMap::new())),
             socket: Arc::new(socket),
@@ -202,41 +218,43 @@ mod tests {
         assert_eq!(pi.price, pi2.price);
     }
 
-    // #[tokio::test]
-    // /// discovery roundtrip loop back
-    // async fn discovery_roundtrip_on_loopback() {
-    //     let svc_a = Arc::new(DiscoveryService::with_addr(
-    //         test_peer_info(),
-    //         "127.0.0.1:6000",
-    //         "127.0.0.1:6001",
-    //     ).await.unwrap());
-    //     let svc_b = Arc::new(DiscoveryService::with_addr(
-    //         test_peer_info(),
-    //         "127.0.0.1:6002", 
-    //         "127.0.0.1:6001",
-    //     ).await.unwrap());
+    #[tokio::test]
+    /// discovery roundtrip loop back
+    /// we bind the destination to the other service's address
+    /// because we cannot send to a multicast address
+    async fn discovery_roundtrip_on_loopback() {
+        let svc_a = Arc::new(DiscoveryService::test_with_addr(
+            test_peer_info(),
+            "127.0.0.1:6000",
+            "127.0.0.1:6002",
+        ).await.unwrap());
+        let svc_b = Arc::new(DiscoveryService::test_with_addr(
+            test_peer_info(),
+            "127.0.0.1:6002", 
+            "127.0.0.1:6000",
+        ).await.unwrap());
 
-    //     // run both services 
-    //     tokio::spawn(svc_a.clone().run());
-    //     tokio::spawn(svc_b.clone().run());
+        // run both services 
+        tokio::spawn(svc_a.clone().run());
+        tokio::spawn(svc_b.clone().run());
 
-    //     // let them announce and listen
-    //     time::sleep(Duration::from_secs(3)).await;
+        // let them announce and listen
+        time::sleep(Duration::from_secs(3)).await;
 
-    //     // get peers
-    //     let peers_a = svc_a.get_peers().await;
-    //     let peers_b = svc_b.get_peers().await;
+        // get peers
+        let peers_a = svc_a.get_peers().await;
+        let peers_b = svc_b.get_peers().await;
 
-    //     // check
-    //     assert!(
-    //         peers_a.iter().any(|p| p.peer_id == svc_b.peer_info.peer_id),
-    //         "A should see B"
-    //     );
-    //     assert!(
-    //         peers_b.iter().any(|p| p.peer_id == svc_a.peer_info.peer_id),
-    //         "B should see A"
-    //     );
-    // }
+        // check
+        assert!(
+            peers_a.iter().any(|p| p.peer_id == svc_b.peer_info.peer_id),
+            "A should see B"
+        );
+        assert!(
+            peers_b.iter().any(|p| p.peer_id == svc_a.peer_info.peer_id),
+            "B should see A"
+        );
+    }
 
     #[tokio::test]
     /// sweep stale peer
