@@ -1,9 +1,13 @@
 use libp2p::{futures::lock::Mutex, PeerId};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use std::{collections::HashMap, error::Error, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    error::Error,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::{net::UdpSocket, time};
-
 
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
 const PEER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -58,14 +62,32 @@ pub struct DiscoveryService {
 impl DiscoveryService {
     /// creates a new discovery service based on the peer_info
     pub async fn new(peer_info: PeerInfo) -> Result<Self, Box<dyn Error>> {
-        let multicast_ip = "224.0.0.251".parse()?;
-        let local_ip = "0.0.0.0".parse()?;
-        let socket = UdpSocket::bind("0.0.0.0:5333").await?;
-        socket.join_multicast_v4(multicast_ip, local_ip)?;
+        Self::with_addr(peer_info, "0.0.0.0:5333", MULTICAST_ADDR).await
+    }
+
+    /// test-friendly constructor that binds to specific addresses
+    pub async fn with_addr(
+        peer_info: PeerInfo,
+        bind_addr: &str,
+        multicast_addr: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        
+        let mut parts = multicast_addr.split(":");
+        let mcast_ip: std::net::Ipv4Addr = parts.next().ok_or("missing multicast IP")?.parse()?;
+        parts.next().ok_or("missing multicast port")?;
+        
+        let mut parts = bind_addr.split(':');
+        let local_ip: std::net::Ipv4Addr = parts.next().ok_or("missing bind IP")?.parse()?;
+        parts.next().ok_or("missing bind port")?;
+        
+        // bind and join
+        let socket = UdpSocket::bind(bind_addr).await?;
+        socket.join_multicast_v4(mcast_ip, local_ip)?;
+
         Ok(Self {
             peers: Arc::new(Mutex::new(HashMap::new())),
             socket: Arc::new(socket),
-            peer_info: peer_info,
+            peer_info,
         })
     }
 
@@ -73,9 +95,9 @@ impl DiscoveryService {
     /// we pass self as an Arc because the uses itself to run the functions
     pub async fn run(self: Arc<Self>) {
         // clone out into locals so they live long enough
-        let svc_listen   = self.clone();
+        let svc_listen = self.clone();
         let svc_announce = self.clone();
-        let svc_sweep    = self.clone();
+        let svc_sweep = self.clone();
 
         tokio::join!(
             svc_listen.listen_to_peers(),
@@ -103,7 +125,7 @@ impl DiscoveryService {
                 Err(e) => {
                     eprintln!("Failed to deserialize bytes into PeerInfoWire: {}", e);
                     continue;
-                } 
+                }
             };
 
             // convert peer info wire to peer info
@@ -126,7 +148,7 @@ impl DiscoveryService {
         let piw = PeerInfoWire::from(self.peer_info.clone());
         let data = bincode::serialize(&piw).unwrap();
         let mut interval = time::interval(ANNOUNCE_INTERVAL);
-        
+
         // run intervals to broadcast one's peer info wire
         loop {
             interval.tick().await;
@@ -153,32 +175,70 @@ impl DiscoveryService {
     }
 
     /// retrieve the existing peers in the discovery service
-    pub async fn get_peers(&self)-> Vec<PeerInfo> {
+    pub async fn get_peers(&self) -> Vec<PeerInfo> {
         let peers_map = self.peers.lock().await;
-        peers_map.iter()
-            .map(|(_peer_id, (peer_info,_instant))| peer_info.clone())
+        peers_map
+            .iter()
+            .map(|(_peer_id, (peer_info, _instant))| peer_info.clone())
             .collect()
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{net::Ipv4Addr, sync::Arc, time::Duration};
     use tokio::time;
-    use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
     /// testing for serializing and deserializing peer info wire
-    async fn peer_info_wire_roundtrip(){
+    async fn peer_info_wire_roundtrip() {
         let pi = test_peer_info();
         let wire: PeerInfoWire = pi.clone().into();
         let bytes = bincode::serialize(&wire).unwrap();
         let wire2: PeerInfoWire = bincode::deserialize(&bytes).unwrap();
-        let pi2  = PeerInfo::try_from(wire2).unwrap();
+        let pi2 = PeerInfo::try_from(wire2).unwrap();
         assert_eq!(pi.peer_id, pi2.peer_id);
         assert_eq!(pi.spare_mbs, pi2.spare_mbs);
         assert_eq!(pi.price, pi2.price);
+    }
+
+    #[tokio::test]
+    /// discovery roundtrip loop back
+    async fn discovery_roundtrip_on_loopback() {
+        let svc_a = Arc::new(DiscoveryService::with_addr(
+            test_peer_info(),
+            "127.0.0.1:6000",
+            "224.0.0.251:6001",  // <-- valid multicast group
+        ).await.unwrap());
+        let svc_b = Arc::new(DiscoveryService::with_addr(
+            test_peer_info(),
+            "127.0.0.1:6002", 
+            "224.0.0.251:6001",  // <-- valid multicast group
+        ).await.unwrap());
+
+        // run both services 
+        tokio::spawn(svc_a.clone().run());
+        tokio::spawn(svc_b.clone().run());
+
+        // let them announce and listen
+        time::sleep(Duration::from_secs(3)).await;
+
+        // get peers
+        let peers_a = svc_a.get_peers().await;
+        let peers_b = svc_b.get_peers().await;
+
+        // check
+        assert!(
+            peers_a.iter().any(|p| p.peer_id == svc_b.peer_info.peer_id),
+            "A should see B"
+        );
+        assert!(
+            peers_b.iter().any(|p| p.peer_id == svc_a.peer_info.peer_id),
+            "B should see A"
+        );
+        
+        
     }
 
     #[tokio::test]
@@ -190,13 +250,23 @@ mod tests {
         {
             let mut map = svc.peers.lock().await;
             let pi = test_peer_info();
-            map.insert(pi.peer_id, (pi, Instant::now() - Duration::from_secs(PEER_TIMEOUT.as_secs()+1)));
+            map.insert(
+                pi.peer_id,
+                (
+                    pi,
+                    Instant::now() - Duration::from_secs(PEER_TIMEOUT.as_secs() + 1),
+                ),
+            );
         }
         svc.sweep_once().await;
         assert!(svc.get_peers().await.is_empty());
     }
 
     fn test_peer_info() -> PeerInfo {
-        PeerInfo { peer_id: PeerId::random(), spare_mbs: 11, price: 11.0 }
+        PeerInfo {
+            peer_id: PeerId::random(),
+            spare_mbs: 11,
+            price: 11.0,
+        }
     }
 }
