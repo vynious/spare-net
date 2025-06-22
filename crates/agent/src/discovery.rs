@@ -2,9 +2,13 @@ use libp2p::{futures::lock::Mutex, PeerId};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::{
-    collections::HashMap, error::Error, net::{Ipv4Addr, SocketAddr}, sync::Arc, time::{Duration, Instant}
+    collections::HashMap,
+    error::Error,
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+    time::{Duration, Instant},
 };
-use tokio::{net::{UdpSocket}, time};
+use tokio::{net::UdpSocket, time};
 
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
 const PEER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -54,7 +58,7 @@ pub struct DiscoveryService {
     peers: Arc<Mutex<HashMap<PeerId, (PeerInfo, Instant)>>>,
     socket: Arc<UdpSocket>,
     peer_info: PeerInfo,
-    dest: SocketAddr
+    dest: SocketAddr,
 }
 
 impl DiscoveryService {
@@ -69,15 +73,14 @@ impl DiscoveryService {
         bind_addr: &str,
         dest_addr: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        
         let mut parts = dest_addr.split(":");
         let dest_ip: std::net::Ipv4Addr = parts.next().ok_or("missing multicast IP")?.parse()?;
         parts.next().ok_or("missing multicast port")?;
-        
+
         let mut parts = bind_addr.split(':');
         let local_ip: std::net::Ipv4Addr = parts.next().ok_or("missing bind IP")?.parse()?;
         parts.next().ok_or("missing bind port")?;
-        
+
         // bind and join
         let socket = UdpSocket::bind(bind_addr).await?;
         socket.join_multicast_v4(dest_ip, local_ip)?;
@@ -90,7 +93,7 @@ impl DiscoveryService {
         })
     }
 
-    /// [TEST ONLY] constructor to be used in testcases to circumvent the 
+    /// [TEST ONLY] constructor to be used in testcases to circumvent the
     /// multicast connection issue
     pub async fn test_with_addr(
         peer_info: PeerInfo,
@@ -168,7 +171,7 @@ impl DiscoveryService {
         loop {
             interval.tick().await;
             // send peer info wire in bytes to multicast address
-            if let Err(e) = self.socket.send_to(&data,self.dest).await {
+            if let Err(e) = self.socket.send_to(&data, self.dest).await {
                 eprintln!("Broadcast error: {}", e);
             }
         }
@@ -223,18 +226,18 @@ mod tests {
     /// we bind the destination to the other service's address
     /// because we cannot send to a multicast address
     async fn discovery_roundtrip_on_loopback() {
-        let svc_a = Arc::new(DiscoveryService::test_with_addr(
-            test_peer_info(),
-            "127.0.0.1:6000",
-            "127.0.0.1:6002",
-        ).await.unwrap());
-        let svc_b = Arc::new(DiscoveryService::test_with_addr(
-            test_peer_info(),
-            "127.0.0.1:6002", 
-            "127.0.0.1:6000",
-        ).await.unwrap());
+        let svc_a = Arc::new(
+            DiscoveryService::test_with_addr(test_peer_info(), "127.0.0.1:6000", "127.0.0.1:6002")
+                .await
+                .unwrap(),
+        );
+        let svc_b = Arc::new(
+            DiscoveryService::test_with_addr(test_peer_info(), "127.0.0.1:6002", "127.0.0.1:6000")
+                .await
+                .unwrap(),
+        );
 
-        // run both services 
+        // run both services
         tokio::spawn(svc_a.clone().run());
         tokio::spawn(svc_b.clone().run());
 
