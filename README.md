@@ -31,7 +31,7 @@ A lightweight, peer-to-peer resource-sharing tool that negotiates transfer "Deal
      * `sparenet lend <file>` — wait for incoming `Deal` (server side).
    * Authored loopback integration tests to validate end-to-end `Deal` round trips.
 
-## Pending?
+## Pending
 
 * **Data Plane Implementation**
 
@@ -48,4 +48,3 @@ A lightweight, peer-to-peer resource-sharing tool that negotiates transfer "Deal
   * CLI flags for pricing negotiation.
   * Progress bars and transfer statistics.
 
----
