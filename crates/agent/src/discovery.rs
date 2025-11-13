@@ -110,8 +110,8 @@ impl DiscoveryService {
     }
     
     /// return own info
-    pub fn get_peer_info(&self) -> PeerInfo {
-        self.peer_info.clone()
+    pub fn get_peer_info(&self) -> &PeerInfo {
+        &self.peer_info
     }
 
     /// start the discovery service

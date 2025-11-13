@@ -52,7 +52,7 @@ impl Agent {
         matched_peers
     }
 
-    fn get_peer_info(&self) -> PeerInfo {
+    fn get_peer_info(&self) -> &PeerInfo {
         self.discovery.get_peer_info()
     }
 }
