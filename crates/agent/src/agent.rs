@@ -72,6 +72,7 @@ mod tests {
     /// `spare_mbs` and `price`.
     async fn two_agents_communicate() {
         let peer_info1 = PeerInfo {
+            addr: "127.0.0.1:6100".parse().unwrap(),
             peer_id: PeerId::random(),
             spare_mbs: 14,
             price: 15.0,
@@ -82,6 +83,7 @@ mod tests {
             price_per_mb: 10.0,
         };
         let peer_info2 = PeerInfo {
+            addr: "127.0.0.1:6102".parse().unwrap(),
             peer_id: PeerId::random(),
             spare_mbs: 50,
             price: 1.0,
