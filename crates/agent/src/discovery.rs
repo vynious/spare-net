@@ -108,6 +108,11 @@ impl DiscoveryService {
             dest: dest_addr.parse()?,
         })
     }
+    
+    /// return own info
+    pub fn get_peer_info(&self) -> PeerInfo {
+        self.peer_info.clone()
+    }
 
     /// start the discovery service
     /// we pass self as an Arc because the uses itself to run the functions

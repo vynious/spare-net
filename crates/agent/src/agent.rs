@@ -39,13 +39,21 @@ impl Agent {
         (peer_info.spare_mbs >= deal.file_len) && (peer_info.price <= deal.price_per_mb)
     }
 
-    pub async fn match_deals_with_peers(&self, deal: Deal) {
+    pub async fn matched_deals_with_peers(&self, deal: Deal) -> Vec<PeerInfo> {
+        let mut matched_peers: Vec<PeerInfo> = Vec::new();
         let peers = self.discovery.get_peers().await;
         peers.iter().for_each(|peer| {
+            println!("peer: {:?}", peer);
             if self.deal_match(&peer, &deal) {
                 info!("Matched deal with peer {}", peer.peer_id);
+                matched_peers.push(peer.clone());
             }
         });
+        matched_peers
+    }
+
+    fn get_peer_info(&self) -> PeerInfo {
+        self.discovery.get_peer_info()
     }
 }
 
@@ -59,16 +67,24 @@ mod tests {
 
     #[tokio::test]
     /// two agents discover each other over loopback sockets
+    /// agents will succeed in matching a deal with one another
+    /// peer1's deal will be matched with peer2 based on its
+    /// `spare_mbs` and `price`.
     async fn two_agents_communicate() {
         let peer_info1 = PeerInfo {
             peer_id: PeerId::random(),
-            spare_mbs: 13,
-            price: 13.0,
+            spare_mbs: 14,
+            price: 15.0,
+        };
+
+        let deal1 = Deal {
+            file_len: 40,
+            price_per_mb: 10.0,
         };
         let peer_info2 = PeerInfo {
             peer_id: PeerId::random(),
-            spare_mbs: 13,
-            price: 13.0,
+            spare_mbs: 50,
+            price: 1.0,
         };
 
         let agent1 = Arc::new(
@@ -85,7 +101,7 @@ mod tests {
         let _ = agent1.clone().run().await;
         let _ = agent2.clone().run().await;
 
-        time::sleep(Duration::from_secs(3)).await;
+        time::sleep(Duration::from_secs(1)).await;
 
         let peers_agent1 = agent1.discovery.get_peers().await;
         let peers_agent2 = agent2.discovery.get_peers().await;
@@ -102,5 +118,10 @@ mod tests {
                 .any(|peer| peer.peer_id == peer_info1.peer_id),
             "agent2 should see agent1"
         );
+
+        let matched_peers = agent1.matched_deals_with_peers(deal1).await;
+
+        assert_eq!(matched_peers.len(), 1);
+        assert_eq!(matched_peers[0].peer_id, agent2.get_peer_info().peer_id);
     }
 }
