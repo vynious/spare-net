@@ -205,7 +205,7 @@ impl DiscoveryService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{net::Ipv4Addr, sync::Arc, time::Duration};
+    use std::{sync::Arc, time::Duration};
     use tokio::time;
 
     #[tokio::test]

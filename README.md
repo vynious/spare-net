@@ -1,50 +1,48 @@
-# spare-net
+# Sparenet
 
-A lightweight, peer-to-peer resource-sharing tool that negotiates transfer "Deals" over an encrypted QUIC/TLS control plane and discovers peers via mDNS.
+Peer-to-peer experimentation space for sharing spare network capacity. Nodes
+advertise how many megabytes they can serve and at what price, discover each
+other on the local network, and negotiate transfer “deals” over a QUIC control
+channel.
 
-## Progress to Date
+## Repository Layout
 
-1. **Project Setup**
+- `crates/agent`: Core networking logic. It exposes:
+  - `discovery`: UDP multicast (or loopback) presence broadcasting plus a peer
+    map that expires entries after inactivity.
+  - `connection`: QUIC-based control plane for proposing and accepting `Deal`s
+    that describe file size and price per MB.
+- `crates/cli`: Placeholder CLI where the eventual user interface for running an
+  agent, listing peers, and initiating deals will live.
 
-   * Initialized Rust workspace with `Tokio`, `quinn`, `rcgen`, `bincode`, and mDNS crates.
+## How Things Fit Together
 
-2. **Peer Discovery**
+1. Each node instantiates `DiscoveryService`, which
+   - broadcasts its `PeerInfo` (peer ID, spare MBs, asking price) every two
+     seconds,
+   - listens for other broadcasts and tracks live peers,
+   - prunes any peer that has been silent longer than `PEER_TIMEOUT`.
+2. When two peers decide to transact, they use `connection::send_deal` /
+   `serve_custom_control` to establish a QUIC connection, authenticate with a
+   self-signed certificate, and ship a serialized `Deal`.
+3. The CLI will orchestrate these pieces so an operator can run a node, observe
+   discovered peers, and exchange deals without writing custom code.
 
-   * Implemented mDNS-based discovery service:
+## Developing
 
-     * Periodic announcements of node presence.
-     * Background listener to decode incoming `PeerInfo` via `bincode`.
-     * Stale-peer pruning task to expire inactive entries.
+```bash
+# Run all agent tests (discovery and connection units)
+cargo test -p sparenet-agent
 
-3. **Control Plane**
+# Work on the CLI once commands are added
+cargo run -p sparenet-cli -- --help
+```
 
-   * Defined a `Deal { file_len, price_per_mb }` struct (Serde + `bincode`).
-   * Built `serve_custom_control`: generates self-signed TLS cert, spins up a QUIC server, accepts one connection, reads a `Deal`.
-   * Built `send_deal`: configures a QUIC client, dials a peer, opens a unidirectional stream, sends a serialized `Deal` with error contexts.
+## Near-Term Direction
 
-4. **CLI Integration & Testing**
-
-   * Exposed commands:
-
-     * `sparenet peers` — snapshot current peer map.
-     * `sparenet get <peer>` — negotiate the `Deal` (client side).
-     * `sparenet lend <file>` — wait for incoming `Deal` (server side).
-   * Authored loopback integration tests to validate end-to-end `Deal` round trips.
-
-## Pending
-
-* **Data Plane Implementation**
-
-  * Chunking and scheduling of resource transfers (files, proxy streams).
-  * Parallel streams, resume support, and integrity checks.
-
-* **Pricing & Quota Enforcement**
-
-  * Track usage (bytes transferred) against `price_per_mb`.
-  * On-chain or off-chain credit accounting.
-
-* **User Experience Enhancements**
-
-  * CLI flags for pricing negotiation.
-  * Progress bars and transfer statistics.
-
+1. Wire the CLI to the agent crate so running `sparenet-cli` spins up discovery
+   and shows live peers.
+2. Finish the QUIC round-trip test in `connection.rs` and add an integration
+   test that covers discovery plus a deal exchange.
+3. Define the actual data transfer/payment workflow that follows a `Deal`,
+   extending the protocol as needed.
