@@ -18,7 +18,7 @@ const MULTICAST_ADDR: &str = "224.0.0.251:5353";
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
     pub peer_id: PeerId,
-    pub spare_mbs: u16,
+    pub spare_mbs: u64,
     pub price: f32,
 }
 
@@ -26,7 +26,7 @@ pub struct PeerInfo {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerInfoWire {
     pub peer_id_bytes: ByteBuf,
-    pub spare_mbs: u16,
+    pub spare_mbs: u64,
     pub price: f32,
 }
 
@@ -109,9 +109,9 @@ impl DiscoveryService {
         })
     }
 
-    /// run the discovery service
+    /// start the discovery service
     /// we pass self as an Arc because the uses itself to run the functions
-    pub async fn run(self: Arc<Self>) {
+    pub async fn start(self: Arc<Self>) {
         // clone out into locals so they live long enough
         let svc_listen = self.clone();
         let svc_announce = self.clone();
@@ -238,8 +238,8 @@ mod tests {
         );
 
         // run both services
-        tokio::spawn(svc_a.clone().run());
-        tokio::spawn(svc_b.clone().run());
+        tokio::spawn(svc_a.clone().start());
+        tokio::spawn(svc_b.clone().start());
 
         // let them announce and listen
         time::sleep(Duration::from_secs(3)).await;
