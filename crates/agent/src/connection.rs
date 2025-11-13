@@ -15,7 +15,7 @@ fn ensure_crypto_provider() {
     INIT.call_once(|| {
         ring::default_provider()
             .install_default()
-            .expect(("failed to install ring provider"))
+            .expect("failed to install ring provider")
     });
 }
 
