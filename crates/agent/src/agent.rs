@@ -2,7 +2,7 @@ use std::error::Error;
 
 use crate::discovery::{DiscoveryService, PeerInfo};
 
-struct Agent {
+pub struct Agent {
     discovery: DiscoveryService,
 }
 
