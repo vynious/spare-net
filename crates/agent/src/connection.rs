@@ -50,10 +50,10 @@ pub async fn receive(endpoint: &Endpoint) -> Result<Deal> {
         println!("failed to accept unidirectional stream: {}", e);
         panic!("failed to accept unidirectional stream");
     });
-    let bytes = uni
-        .read_to_end(1024)
-        .await
-        .context("reading deal bytes from stream")?;
+    let bytes = uni.read_to_end(1024).await.unwrap_or_else(|e| {
+        println!("failed to read from unidirectional stream: {}", e);
+        panic!("failed to read from unidirectional stream");
+    });
     let deal: Deal = bincode::deserialize(&bytes).context("deserializing deal")?;
     Ok(deal)
 }
@@ -87,6 +87,10 @@ pub async fn send(endpoint: &Endpoint, peer_addr: SocketAddr, deal: Deal) -> Res
     uni.write_all(&bytes)
         .await
         .context("failed to write into uni stream")?;
+
+    // Closing the stream and connection
+    uni.finish()?;
+    connection.closed().await;
     Ok(())
 }
 

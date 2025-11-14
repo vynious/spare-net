@@ -1,6 +1,7 @@
 use futures::future::join_all;
 use quinn::Endpoint;
-use std::{error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error, sync::Arc};
+use tokio::{net::unix::SocketAddr, sync::Mutex};
 use tracing::info;
 
 use crate::{
@@ -12,6 +13,7 @@ pub struct Agent {
     discovery: Arc<DiscoveryService>,
     receiver_endpoint: Endpoint,
     sender_endpoint: Endpoint,
+    incoming_deals: Arc<Mutex<HashMap<SocketAddr, Deal>>>,
 }
 
 impl Agent {
@@ -24,6 +26,7 @@ impl Agent {
             discovery: dsvc,
             receiver_endpoint: rep,
             sender_endpoint: sep,
+            incoming_deals: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -43,6 +46,7 @@ impl Agent {
             discovery: dsvc,
             receiver_endpoint: ep,
             sender_endpoint: sep,
+            incoming_deals: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -180,7 +184,5 @@ mod tests {
         agent1.send_matched_deals(deal1).await;
 
         time::sleep(Duration::from_secs(1)).await;
-
-        assert_eq!(1, 0);
     }
 }
