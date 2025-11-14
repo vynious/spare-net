@@ -1,8 +1,8 @@
 use futures::future::join_all;
 use quinn::Endpoint;
 use std::{collections::HashMap, error::Error, sync::Arc};
-use tokio::{net::unix::SocketAddr, sync::Mutex};
-use tracing::info;
+use tokio::sync::Mutex;
+use tracing::{info, warn};
 
 use crate::{
     connection::{open_receiver_endpoint, open_sender_endpoint, receive, send, Deal},
@@ -13,7 +13,7 @@ pub struct Agent {
     discovery: Arc<DiscoveryService>,
     receiver_endpoint: Endpoint,
     sender_endpoint: Endpoint,
-    incoming_deals: Arc<Mutex<HashMap<SocketAddr, Deal>>>,
+    incoming_deals: Arc<Mutex<HashMap<String, Deal>>>,
 }
 
 impl Agent {
@@ -71,17 +71,13 @@ impl Agent {
             let sep = self.sender_endpoint.clone();
             async move {
                 if self.deal_match(&peer, &deal) {
-                    println!(
-                        "Sending matched deal to peer {} at {}",
+                    info!(
+                        "sending matched deal to peer {} at {}",
                         peer.peer_id, peer.addr
                     );
                     if let Err(err) = send(&sep, peer.addr, deal).await {
-                        info!("failed to send deal to {}: {err}", peer.peer_id);
+                        warn!("failed to send deal to {}: {err}", peer.peer_id);
                     }
-                    println!(
-                        "Successfully sent matched deal to peer {} at {}",
-                        peer.peer_id, peer.addr
-                    );
                 }
             }
         });
@@ -90,21 +86,26 @@ impl Agent {
 
     pub async fn receive_deals(&self) {
         let peer_info = self.get_peer_info().clone();
-        println!(
-            "Agent {} listening for deals on {}",
+        info!(
+            "agent {} listening for deals on {}",
             peer_info.peer_id, peer_info.addr
         );
         loop {
             match receive(&self.receiver_endpoint).await {
                 Ok(deal) => {
-                    println!(
-                        "Agent {} received deal: {:?}",
+                    info!(
+                        "agent {} received deal from {}",
                         self.get_peer_info().peer_id,
-                        deal
+                        deal.peer_info_wire.addr
                     );
+                    // insert into incoming deals
+                    self.incoming_deals
+                        .lock()
+                        .await
+                        .insert(deal.peer_info_wire.addr.to_string(), deal);
                 }
                 Err(e) => {
-                    println!("failed to receive deal: {e}");
+                    warn!("failed to receive deal: {e}");
                 }
             }
         }
@@ -120,6 +121,8 @@ mod tests {
     use libp2p::PeerId;
     use std::{sync::Arc, time::Duration};
     use tokio::time;
+
+    use crate::discovery::PeerInfoWire;
 
     use super::*;
 
@@ -137,9 +140,11 @@ mod tests {
         };
 
         let deal1 = Deal {
+            peer_info_wire: PeerInfoWire::from(peer_info1.clone()),
             file_len: 40,
             price_per_mb: 10.0,
         };
+
         let peer_info2 = PeerInfo {
             addr: "127.0.0.1:6103".parse().unwrap(),
             peer_id: PeerId::random(),
@@ -181,8 +186,23 @@ mod tests {
             "agent2 should see agent1"
         );
 
+        let expected_deal = deal1.clone();
         agent1.send_matched_deals(deal1).await;
 
         time::sleep(Duration::from_secs(1)).await;
+        let received_deal = agent2
+            .incoming_deals
+            .lock()
+            .await
+            .get(&agent1.get_peer_info().addr.to_string())
+            .expect("not found")
+            .clone();
+
+        assert_eq!(
+            received_deal.peer_info_wire.addr,
+            agent1.get_peer_info().addr
+        );
+        assert_eq!(received_deal.file_len, expected_deal.file_len);
+        assert_eq!(received_deal.price_per_mb, expected_deal.price_per_mb);
     }
 }

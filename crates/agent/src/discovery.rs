@@ -4,7 +4,7 @@ use serde_bytes::ByteBuf;
 use std::{
     collections::HashMap,
     error::Error,
-    net::{Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -182,6 +182,7 @@ impl DiscoveryService {
     async fn announce_presence(&self) {
         let piw = PeerInfoWire::from(self.peer_info.clone());
         let mut data = Vec::with_capacity(MAGIC_HEADER.len() + 64);
+
         // add secret prefix for listener to filter out other data
         data.extend_from_slice(MAGIC_HEADER);
         data.extend_from_slice(&bincode::serialize(&piw).unwrap());

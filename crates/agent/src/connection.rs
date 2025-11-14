@@ -1,14 +1,17 @@
 use anyhow::{Context, Error, Result};
-use quinn::{crypto::rustls::QuicClientConfig, Endpoint, ServerConfig};
+use quinn::{Endpoint, ServerConfig};
 use rustls::{crypto::ring, pki_types::PrivateKeyDer};
 use serde::{Deserialize, Serialize};
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Once},
-};
+use std::{net::SocketAddr, sync::Once};
+
+use crate::discovery::PeerInfoWire;
+
+#[cfg(test)]
+use {libp2p::PeerId, quinn::crypto::rustls::QuicClientConfig, std::sync::Arc};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Deal {
+    pub peer_info_wire: PeerInfoWire,
     pub file_len: u64,
     pub price_per_mb: f32,
 }
@@ -46,14 +49,14 @@ pub async fn receive(endpoint: &Endpoint) -> Result<Deal> {
         .accept()
         .context("connection handshake failed")?
         .await?;
-    let mut uni = conn.accept_uni().await.unwrap_or_else(|e| {
-        println!("failed to accept unidirectional stream: {}", e);
-        panic!("failed to accept unidirectional stream");
-    });
-    let bytes = uni.read_to_end(1024).await.unwrap_or_else(|e| {
-        println!("failed to read from unidirectional stream: {}", e);
-        panic!("failed to read from unidirectional stream");
-    });
+    let mut uni = conn
+        .accept_uni()
+        .await
+        .context("failed to accept unidirectional stream")?;
+    let bytes = uni
+        .read_to_end(1024)
+        .await
+        .context("failed to read from unidirectional stream")?;
     let deal: Deal = bincode::deserialize(&bytes).context("deserializing deal")?;
     Ok(deal)
 }
@@ -164,16 +167,13 @@ fn default_client_config() -> quinn::ClientConfig {
 
 #[cfg(test)]
 mod tests {
+    use serde_bytes::ByteBuf;
+
     use super::*;
 
     #[tokio::test]
     #[ignore = "requires local QUIC handshake"]
     async fn round_trip_control_deal() {
-        let deal = Deal {
-            file_len: 10,
-            price_per_mb: 10.0,
-        };
-
         let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap_or_else(|err| {
             eprintln!("failed to parse into socket {}", err);
             panic!("failed to parse into socket address");
@@ -191,6 +191,17 @@ mod tests {
 
         let ep_thread = rep.clone();
         let server = tokio::spawn(async move { receive(&ep_thread).await });
+
+        let deal = Deal {
+            peer_info_wire: PeerInfoWire {
+                addr: addr,
+                peer_id_bytes: ByteBuf::from(PeerId::random().to_bytes()),
+                spare_mbs: 10,
+                price: 10.0,
+            },
+            file_len: 10,
+            price_per_mb: 10.0,
+        };
 
         match send(&sep, addr, deal.clone()).await {
             Ok(_) => {}
