@@ -52,11 +52,12 @@ impl Agent {
 
     pub async fn run(self: Arc<Self>) {
         let dsvc = self.discovery.clone();
+        let self_clone = self.clone();
         let _ = tokio::spawn(async move {
             dsvc.start().await;
         });
         let _ = tokio::spawn(async move {
-            self.receive_deals().await;
+            self_clone.receive_deals().await;
         });
     }
 

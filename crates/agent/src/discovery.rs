@@ -183,7 +183,7 @@ impl DiscoveryService {
         let piw = PeerInfoWire::from(self.peer_info.clone());
         let mut data = Vec::with_capacity(MAGIC_HEADER.len() + 64);
 
-        // add secret prefix for listener to filter out other data
+        // add protocol magic header for listener to filter out non-protocol data
         data.extend_from_slice(MAGIC_HEADER);
         data.extend_from_slice(&bincode::serialize(&piw).unwrap());
         let mut interval = time::interval(ANNOUNCE_INTERVAL);
