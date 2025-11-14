@@ -2269,6 +2269,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "futures",
  "libp2p",
  "quinn",
  "quinn-proto",

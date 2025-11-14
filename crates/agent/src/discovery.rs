@@ -13,6 +13,7 @@ use tokio::{net::UdpSocket, time};
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
 const PEER_TIMEOUT: Duration = Duration::from_secs(5);
 const MULTICAST_ADDR: &str = "224.0.0.251:5353";
+const MAGIC_HEADER: &[u8; 4] = b"SPAR";
 
 /// in-memory representation
 #[derive(Debug, Clone)]
@@ -97,6 +98,7 @@ impl DiscoveryService {
         })
     }
 
+    #[cfg(test)]
     /// [TEST ONLY] constructor to be used in testcases to circumvent the
     /// multicast connection issue
     pub async fn test_with_addr(
@@ -146,8 +148,14 @@ impl DiscoveryService {
                 }
             };
 
+            if len < MAGIC_HEADER.len() || &buf[..MAGIC_HEADER.len()] != MAGIC_HEADER {
+                continue;
+            }
+
+            let payload = &buf[MAGIC_HEADER.len()..len];
+
             // deserialize bytes -> peer info wire
-            let peer_info_wire = match bincode::deserialize::<PeerInfoWire>(&buf[..len]) {
+            let peer_info_wire = match bincode::deserialize::<PeerInfoWire>(payload) {
                 Ok(piw) => piw,
                 Err(e) => {
                     eprintln!("Failed to deserialize bytes into PeerInfoWire: {}", e);
@@ -173,7 +181,10 @@ impl DiscoveryService {
     /// broadcast current peer info to multicast address for other peers
     async fn announce_presence(&self) {
         let piw = PeerInfoWire::from(self.peer_info.clone());
-        let data = bincode::serialize(&piw).unwrap();
+        let mut data = Vec::with_capacity(MAGIC_HEADER.len() + 64);
+        // add secret prefix for listener to filter out other data
+        data.extend_from_slice(MAGIC_HEADER);
+        data.extend_from_slice(&bincode::serialize(&piw).unwrap());
         let mut interval = time::interval(ANNOUNCE_INTERVAL);
 
         // run intervals to broadcast one's peer info wire

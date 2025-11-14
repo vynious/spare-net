@@ -1,20 +1,30 @@
+use futures::future::join_all;
+use quinn::Endpoint;
 use std::{error::Error, sync::Arc};
-
 use tracing::info;
 
 use crate::{
-    connection::{send_deal, Deal},
+    connection::{open_receiver_endpoint, open_sender_endpoint, receive, send, Deal},
     discovery::{DiscoveryService, PeerInfo},
 };
 
 pub struct Agent {
     discovery: Arc<DiscoveryService>,
+    receiver_endpoint: Endpoint,
+    sender_endpoint: Endpoint,
 }
 
 impl Agent {
     pub async fn new(peer_info: PeerInfo) -> Result<Self, Box<dyn Error>> {
+        let listen_addr = peer_info.clone().addr;
         let dsvc = Arc::new(DiscoveryService::new(peer_info).await?);
-        Ok(Agent { discovery: dsvc })
+        let rep = open_receiver_endpoint(listen_addr).await?;
+        let sep = open_sender_endpoint().await?;
+        Ok(Agent {
+            discovery: dsvc,
+            receiver_endpoint: rep,
+            sender_endpoint: sep,
+        })
     }
 
     #[cfg(test)]
@@ -23,9 +33,17 @@ impl Agent {
         bind_addr: &str,
         dest_addr: &str,
     ) -> Result<Self, Box<dyn Error>> {
+        let listen_addr = peer_info.clone().addr;
         let dsvc =
             Arc::new(DiscoveryService::test_with_addr(peer_info, bind_addr, dest_addr).await?);
-        Ok(Agent { discovery: dsvc })
+        let ep = open_receiver_endpoint(listen_addr).await?;
+        let sep = open_sender_endpoint().await?;
+
+        Ok(Agent {
+            discovery: dsvc,
+            receiver_endpoint: ep,
+            sender_endpoint: sep,
+        })
     }
 
     pub async fn run(self: Arc<Self>) {
@@ -33,23 +51,59 @@ impl Agent {
         let _ = tokio::spawn(async move {
             dsvc.start().await;
         });
+        let _ = tokio::spawn(async move {
+            self.receive_deals().await;
+        });
     }
 
     fn deal_match(&self, peer_info: &PeerInfo, deal: &Deal) -> bool {
         (peer_info.spare_mbs >= deal.file_len) && (peer_info.price <= deal.price_per_mb)
     }
 
-    pub async fn matched_deals_with_peers(&self, deal: Deal) -> Vec<PeerInfo> {
-        let mut matched_peers: Vec<PeerInfo> = Vec::new();
+    pub async fn send_matched_deals(&self, deal: Deal) {
         let peers = self.discovery.get_peers().await;
-        peers.iter().for_each(|peer| {
-            println!("peer: {:?}", peer);
-            if self.deal_match(&peer, &deal) {
-                info!("Matched deal with peer {}", peer.peer_id);
-                matched_peers.push(peer.clone());
+        let send_tasks = peers.into_iter().map(|peer| {
+            let deal = deal.clone();
+            let sep = self.sender_endpoint.clone();
+            async move {
+                if self.deal_match(&peer, &deal) {
+                    println!(
+                        "Sending matched deal to peer {} at {}",
+                        peer.peer_id, peer.addr
+                    );
+                    if let Err(err) = send(&sep, peer.addr, deal).await {
+                        info!("failed to send deal to {}: {err}", peer.peer_id);
+                    }
+                    println!(
+                        "Successfully sent matched deal to peer {} at {}",
+                        peer.peer_id, peer.addr
+                    );
+                }
             }
         });
-        matched_peers
+        join_all(send_tasks).await;
+    }
+
+    pub async fn receive_deals(&self) {
+        let peer_info = self.get_peer_info().clone();
+        println!(
+            "Agent {} listening for deals on {}",
+            peer_info.peer_id, peer_info.addr
+        );
+        loop {
+            match receive(&self.receiver_endpoint).await {
+                Ok(deal) => {
+                    println!(
+                        "Agent {} received deal: {:?}",
+                        self.get_peer_info().peer_id,
+                        deal
+                    );
+                }
+                Err(e) => {
+                    println!("failed to receive deal: {e}");
+                }
+            }
+        }
     }
 
     fn get_peer_info(&self) -> &PeerInfo {
@@ -72,7 +126,7 @@ mod tests {
     /// `spare_mbs` and `price`.
     async fn two_agents_communicate() {
         let peer_info1 = PeerInfo {
-            addr: "127.0.0.1:6100".parse().unwrap(),
+            addr: "127.0.0.1:6101".parse().unwrap(),
             peer_id: PeerId::random(),
             spare_mbs: 14,
             price: 15.0,
@@ -83,27 +137,29 @@ mod tests {
             price_per_mb: 10.0,
         };
         let peer_info2 = PeerInfo {
-            addr: "127.0.0.1:6102".parse().unwrap(),
+            addr: "127.0.0.1:6103".parse().unwrap(),
             peer_id: PeerId::random(),
             spare_mbs: 50,
             price: 1.0,
         };
 
+        // connect with Agent2's discovery address
         let agent1 = Arc::new(
             Agent::test_with_addr(peer_info1.clone(), "127.0.0.1:6100", "127.0.0.1:6102")
                 .await
                 .unwrap(),
         );
+        // connect with Agent1's discovery address
         let agent2 = Arc::new(
             Agent::test_with_addr(peer_info2.clone(), "127.0.0.1:6102", "127.0.0.1:6100")
                 .await
                 .unwrap(),
         );
 
-        let _ = agent1.clone().run().await;
-        let _ = agent2.clone().run().await;
+        let _ = tokio::spawn(agent1.clone().run());
+        let _ = tokio::spawn(agent2.clone().run());
 
-        time::sleep(Duration::from_secs(1)).await;
+        time::sleep(Duration::from_secs(2)).await;
 
         let peers_agent1 = agent1.discovery.get_peers().await;
         let peers_agent2 = agent2.discovery.get_peers().await;
@@ -121,9 +177,10 @@ mod tests {
             "agent2 should see agent1"
         );
 
-        let matched_peers = agent1.matched_deals_with_peers(deal1).await;
+        agent1.send_matched_deals(deal1).await;
 
-        assert_eq!(matched_peers.len(), 1);
-        assert_eq!(matched_peers[0].peer_id, agent2.get_peer_info().peer_id);
+        time::sleep(Duration::from_secs(1)).await;
+
+        assert_eq!(1, 0);
     }
 }
