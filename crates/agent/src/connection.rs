@@ -6,12 +6,16 @@ use std::{net::SocketAddr, sync::Once};
 
 use crate::discovery::PeerInfoWire;
 
+/// Number of bytes in one mebibyte (MiB).
+pub const BYTES_PER_MEBIBYTE: u64 = 1024 * 1024;
+
 #[cfg(test)]
 use {libp2p::PeerId, quinn::crypto::rustls::QuicClientConfig, std::sync::Arc};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Deal {
     pub peer_info_wire: PeerInfoWire,
+    /// File length in bytes.
     pub file_len: u64,
     pub price_per_mb: f32,
 }
@@ -199,7 +203,7 @@ mod tests {
                 spare_mbs: 10,
                 price: 10.0,
             },
-            file_len: 10,
+            file_len: 10 * BYTES_PER_MEBIBYTE,
             price_per_mb: 10.0,
         };
 

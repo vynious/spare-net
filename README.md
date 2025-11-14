@@ -34,8 +34,9 @@ ephemeral source socket.
 - `crates/agent`
   - `discovery`: UDP multicast (or loopback) presence broadcasting plus a peer
     map that expires entries after inactivity.
-  - `connection`: QUIC-based control plane for proposing and accepting `Deal`s
-    (now carrying the sender’s `PeerInfoWire`, file length, and price).
+  - `connection`: QUIC-based control plane for proposing and accepting `Deal`s.
+    A `Deal` embeds the sender’s `PeerInfoWire`, the file length in **bytes**
+    (callers convert from MiB via `BYTES_PER_MEBIBYTE`), and the price per MiB.
   - `agent`: Ties discovery and QUIC together, reusing endpoints, matching deals,
     logging via `tracing`, and storing incoming deals keyed by sender addr.
 - `crates/cli`: Placeholder CLI where the eventual user experience for running
@@ -53,8 +54,10 @@ ephemeral source socket.
    its advertised `PeerInfo.addr`, a shared QUIC client endpoint for sending,
    and an `incoming_deals` map. It spawns discovery and a `receive_deals` loop.
 3. `send_matched_deals` clones the sender endpoint, filters peers via
-   `deal_match`, and dispatches `connection::send`, which opens a unidirectional
-   QUIC stream, writes the serialized `Deal`, and finishes the stream.
+   `deal_match` (converting `spare_mbs` → bytes with
+   `spare_mbs * BYTES_PER_MEBIBYTE` before comparing to `deal.file_len`), and
+   dispatches `connection::send`, which opens a unidirectional QUIC stream,
+   writes the serialized `Deal`, and finishes the stream.
 4. `receive_deals` awaits `connection::receive`, logs the sender address from
    the deal’s `PeerInfoWire`, and records the contract.
 

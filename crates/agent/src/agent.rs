@@ -5,7 +5,9 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::{
-    connection::{open_receiver_endpoint, open_sender_endpoint, receive, send, Deal},
+    connection::{
+        open_receiver_endpoint, open_sender_endpoint, receive, send, Deal, BYTES_PER_MEBIBYTE,
+    },
     discovery::{DiscoveryService, PeerInfo},
 };
 
@@ -62,7 +64,8 @@ impl Agent {
     }
 
     fn deal_match(&self, peer_info: &PeerInfo, deal: &Deal) -> bool {
-        (peer_info.spare_mbs >= deal.file_len) && (peer_info.price <= deal.price_per_mb)
+        let spare_bytes = peer_info.spare_mbs.saturating_mul(BYTES_PER_MEBIBYTE);
+        (spare_bytes >= deal.file_len) && (peer_info.price <= deal.price_per_mb)
     }
 
     pub async fn send_matched_deals(&self, deal: Deal) {
@@ -123,7 +126,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
     use tokio::time;
 
-    use crate::discovery::PeerInfoWire;
+    use crate::{connection::BYTES_PER_MEBIBYTE, discovery::PeerInfoWire};
 
     use super::*;
 
@@ -142,7 +145,7 @@ mod tests {
 
         let deal1 = Deal {
             peer_info_wire: PeerInfoWire::from(peer_info1.clone()),
-            file_len: 40,
+            file_len: 40 * BYTES_PER_MEBIBYTE,
             price_per_mb: 10.0,
         };
 

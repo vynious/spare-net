@@ -49,9 +49,12 @@ Two constructors exist:
 ### Deal
 
 ```rust
+pub const BYTES_PER_MEBIBYTE: u64 = 1024 * 1024;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Deal {
     pub peer_info_wire: PeerInfoWire,
+    /// File length in bytes (convert MiB via `BYTES_PER_MEBIBYTE`).
     pub file_len: u64,
     pub price_per_mb: f32,
 }
@@ -111,7 +114,8 @@ The helper currently returns only the `Deal`; callers must read
 logs events via `tracing` and records each deal. `send_matched_deals`:
 
 1. Fetches the current peer list (`discovery.get_peers()`).
-2. Filters peers whose `spare_mbs >= deal.file_len` and `price <= deal.price_per_mb`.
+2. Converts `spare_mbs` to bytes (`spare_mbs * BYTES_PER_MEBIBYTE`), filters
+   peers whose spare bytes exceed `deal.file_len`, and checks price.
 3. Clones the sender endpoint and calls `connection::send` per peer.
 
 ### Tests
