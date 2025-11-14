@@ -4,7 +4,7 @@ use serde_bytes::ByteBuf;
 use std::{
     collections::HashMap,
     error::Error,
-    net::{Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -13,20 +13,23 @@ use tokio::{net::UdpSocket, time};
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
 const PEER_TIMEOUT: Duration = Duration::from_secs(5);
 const MULTICAST_ADDR: &str = "224.0.0.251:5353";
+const MAGIC_HEADER: &[u8; 4] = b"SPAR";
 
 /// in-memory representation
 #[derive(Debug, Clone)]
 pub struct PeerInfo {
+    pub addr: SocketAddr,
     pub peer_id: PeerId,
-    pub spare_mbs: u16,
+    pub spare_mbs: u64,
     pub price: f32,
 }
 
 /// wire representation
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerInfoWire {
+    pub addr: SocketAddr,
     pub peer_id_bytes: ByteBuf,
-    pub spare_mbs: u16,
+    pub spare_mbs: u64,
     pub price: f32,
 }
 
@@ -34,6 +37,7 @@ pub struct PeerInfoWire {
 impl From<PeerInfo> for PeerInfoWire {
     fn from(pi: PeerInfo) -> Self {
         PeerInfoWire {
+            addr: pi.addr,
             peer_id_bytes: ByteBuf::from(pi.peer_id.to_bytes()),
             spare_mbs: pi.spare_mbs,
             price: pi.price,
@@ -46,6 +50,7 @@ impl TryFrom<PeerInfoWire> for PeerInfo {
     type Error = libp2p::identity::ParseError;
     fn try_from(w: PeerInfoWire) -> Result<Self, Self::Error> {
         Ok(PeerInfo {
+            addr: w.addr,
             peer_id: PeerId::from_bytes(&w.peer_id_bytes)?,
             spare_mbs: w.spare_mbs,
             price: w.price,
@@ -93,6 +98,7 @@ impl DiscoveryService {
         })
     }
 
+    #[cfg(test)]
     /// [TEST ONLY] constructor to be used in testcases to circumvent the
     /// multicast connection issue
     pub async fn test_with_addr(
@@ -109,9 +115,14 @@ impl DiscoveryService {
         })
     }
 
-    /// run the discovery service
+    /// return own info
+    pub fn get_peer_info(&self) -> &PeerInfo {
+        &self.peer_info
+    }
+
+    /// start the discovery service
     /// we pass self as an Arc because the uses itself to run the functions
-    pub async fn run(self: Arc<Self>) {
+    pub async fn start(self: Arc<Self>) {
         // clone out into locals so they live long enough
         let svc_listen = self.clone();
         let svc_announce = self.clone();
@@ -137,8 +148,14 @@ impl DiscoveryService {
                 }
             };
 
+            if len < MAGIC_HEADER.len() || &buf[..MAGIC_HEADER.len()] != MAGIC_HEADER {
+                continue;
+            }
+
+            let payload = &buf[MAGIC_HEADER.len()..len];
+
             // deserialize bytes -> peer info wire
-            let peer_info_wire = match bincode::deserialize::<PeerInfoWire>(&buf[..len]) {
+            let peer_info_wire = match bincode::deserialize::<PeerInfoWire>(payload) {
                 Ok(piw) => piw,
                 Err(e) => {
                     eprintln!("Failed to deserialize bytes into PeerInfoWire: {}", e);
@@ -164,7 +181,11 @@ impl DiscoveryService {
     /// broadcast current peer info to multicast address for other peers
     async fn announce_presence(&self) {
         let piw = PeerInfoWire::from(self.peer_info.clone());
-        let data = bincode::serialize(&piw).unwrap();
+        let mut data = Vec::with_capacity(MAGIC_HEADER.len() + 64);
+
+        // add protocol magic header for listener to filter out non-protocol data
+        data.extend_from_slice(MAGIC_HEADER);
+        data.extend_from_slice(&bincode::serialize(&piw).unwrap());
         let mut interval = time::interval(ANNOUNCE_INTERVAL);
 
         // run intervals to broadcast one's peer info wire
@@ -211,7 +232,7 @@ mod tests {
     #[tokio::test]
     /// testing for serializing and deserializing peer info wire
     async fn peer_info_wire_roundtrip() {
-        let pi = test_peer_info();
+        let pi = test_peer_info(6000);
         let wire: PeerInfoWire = pi.clone().into();
         let bytes = bincode::serialize(&wire).unwrap();
         let wire2: PeerInfoWire = bincode::deserialize(&bytes).unwrap();
@@ -227,19 +248,27 @@ mod tests {
     /// because we cannot send to a multicast address
     async fn discovery_roundtrip_on_loopback() {
         let svc_a = Arc::new(
-            DiscoveryService::test_with_addr(test_peer_info(), "127.0.0.1:6000", "127.0.0.1:6002")
-                .await
-                .unwrap(),
+            DiscoveryService::test_with_addr(
+                test_peer_info(6000),
+                "127.0.0.1:6000",
+                "127.0.0.1:6002",
+            )
+            .await
+            .unwrap(),
         );
         let svc_b = Arc::new(
-            DiscoveryService::test_with_addr(test_peer_info(), "127.0.0.1:6002", "127.0.0.1:6000")
-                .await
-                .unwrap(),
+            DiscoveryService::test_with_addr(
+                test_peer_info(6002),
+                "127.0.0.1:6002",
+                "127.0.0.1:6000",
+            )
+            .await
+            .unwrap(),
         );
 
         // run both services
-        tokio::spawn(svc_a.clone().run());
-        tokio::spawn(svc_b.clone().run());
+        tokio::spawn(svc_a.clone().start());
+        tokio::spawn(svc_b.clone().start());
 
         // let them announce and listen
         time::sleep(Duration::from_secs(3)).await;
@@ -263,11 +292,11 @@ mod tests {
     /// sweep stale peer
     async fn sweep_stale_peer() {
         time::pause();
-        let svc = Arc::new(DiscoveryService::new(test_peer_info()).await.unwrap());
+        let svc = Arc::new(DiscoveryService::new(test_peer_info(9000)).await.unwrap());
         // run in block to drop reference and unlock the peers map
         {
             let mut map = svc.peers.lock().await;
-            let pi = test_peer_info();
+            let pi = test_peer_info(9001);
             map.insert(
                 pi.peer_id,
                 (
@@ -280,8 +309,9 @@ mod tests {
         assert!(svc.get_peers().await.is_empty());
     }
 
-    fn test_peer_info() -> PeerInfo {
+    fn test_peer_info(port: u16) -> PeerInfo {
         PeerInfo {
+            addr: format!("127.0.0.1:{}", port).parse().unwrap(),
             peer_id: PeerId::random(),
             spare_mbs: 11,
             price: 11.0,
