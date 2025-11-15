@@ -11,7 +11,7 @@ price, discovers other nodes on the local network, and negotiates transfer
                 └───────────────────────┘
 
 ┌──────────────────────────────┐           ┌──────────────────────────────┐
-│ Agent (node A)               │◄────────►│ Agent (node B)               │
+│ Agent (node A)               │◄────────► │ Agent (node B)               │
 │ ┌──────────────────────────┐ │           │ ┌──────────────────────────┐ │
 │ │ Discovery Service        │◄┼───UDP─────┼►│ Discovery Service        │ │
 │ │ (announces/prunes peers) │ │           │ │ (announces/prunes peers) │ │
@@ -27,37 +27,6 @@ endpoint for dialing peers. Deals embed the sender’s `PeerInfoWire`, so the
 receiver learns who offered the contract even though QUIC only exposes the
 ephemeral source socket.
 
-## Repository Layout
-
-- `crates/agent`
-  - `discovery`: UDP multicast (or loopback) presence broadcasting plus a peer
-    map that expires entries after inactivity.
-  - `connection`: QUIC-based control plane for proposing and accepting `Deal`s.
-    A `Deal` embeds the sender’s `PeerInfoWire`, the file length in **bytes**
-    (callers convert from MiB via `BYTES_PER_MEBIBYTE`), and the price per MiB.
-  - `agent`: Ties discovery and QUIC together, reusing endpoints, matching deals,
-    logging via `tracing`, and storing incoming deals keyed by sender addr.
-- `crates/cli`: Placeholder CLI where the eventual user experience for running
-  an agent, listing peers, and initiating deals will live.
-
-## How Things Fit Together
-
-1. `DiscoveryService::start` spawns three async tasks:
-   - `announce_presence`: serializes `PeerInfoWire`, prefixes with `MAGIC_HEADER`
-     and sends over the shared UDP socket every `ANNOUNCE_INTERVAL`.
-   - `listen_to_peers`: reads from the same socket, filters by header, decodes
-     `PeerInfoWire`, and updates an `Arc<Mutex<HashMap<PeerId, PeerInfo>>>`.
-   - `sweep_timeout_peers`: prunes entries that exceed `PEER_TIMEOUT`.
-2. `Agent::run` holds `Arc<DiscoveryService>`, a QUIC receiver endpoint bound to
-   its advertised `PeerInfo.addr`, a shared QUIC client endpoint for sending,
-   and an `incoming_deals` map. It spawns discovery and a `receive_deals` loop.
-3. `send_matched_deals` clones the sender endpoint, filters peers via
-   `deal_match` (converting `spare_mbs` → bytes with
-   `spare_mbs * BYTES_PER_MEBIBYTE` before comparing to `deal.file_len`), and
-   dispatches `connection::send`, which opens a unidirectional QUIC stream,
-   writes the serialized `Deal`, and finishes the stream.
-4. `receive_deals` awaits `connection::receive`, logs the sender address from
-   the deal’s `PeerInfoWire`, and records the contract.
 
 ## Developing
 
@@ -68,15 +37,3 @@ cargo test -p sparenet-agent
 # Work on the CLI once commands exist
 cargo run -p sparenet-cli -- --help
 ```
-
-Tracing is available via `RUST_LOG=sparenet_agent=info,quinn=warn`.
-
-## Near-Term Direction
-
-1. Hook up the CLI so running `sparenet-cli` spins up discovery and shows live
-   peers/deals.
-2. Extend the QUIC round-trip test (currently `#[ignore]`) and add an integration
-   test that exercises discovery plus a deal exchange.
-3. Define the data transfer/payment workflow that follows a `Deal`, including
-   authenticated TLS (CA-backed certificates or signed deals) and actual data
-   movement once a contract is accepted.
