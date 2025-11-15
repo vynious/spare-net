@@ -8,19 +8,17 @@ price, discovers other nodes on the local network, and negotiates transfer
 ```
                 ┌───────────────────────┐
                 │   UDP Discovery Bus   │  multicast/loopback socket
-                └─────────┬─────────────┘
-                          │
-                   ┌──────▼──────┐
-                   │ Discovery   │ announces PeerInfo,
-          ┌────────┤ Service     │ listens/prunes peers
-          │        └──────-┬─────┘
-          │                │
-┌─────────▼───────┐   ┌────▼────────---┐
-│ Agent (node A)  │   │ Agent (node B) │
-│ - discovery     │   │ - discovery    │
-│ - sender QUIC   │◄─ ┤ - receiver QUIC│
-│ - receiver QUIC │──►│ - sender QUIC  │
-└─────────────────┘   └──────────────--┘
+                └───────────────────────┘
+
+┌──────────────────────────────┐           ┌──────────────────────────────┐
+│ Agent (node A)               │◄────────►│ Agent (node B)               │
+│ ┌──────────────────────────┐ │           │ ┌──────────────────────────┐ │
+│ │ Discovery Service        │◄┼───UDP─────┼►│ Discovery Service        │ │
+│ │ (announces/prunes peers) │ │           │ │ (announces/prunes peers) │ │
+│ └──────────────────────────┘ │           │ └──────────────────────────┘ │
+│ sender QUIC ◄──────────────┐ │           │ sender QUIC ◄──────────────┐ │
+│ receiver QUIC ────────────►│ │           │ receiver QUIC ────────────►│ │
+└──────────────────────────────┘           └──────────────────────────────┘
 ```
 
 Nodes keep one UDP socket for discovery (bidirectional multicast) and two QUIC
