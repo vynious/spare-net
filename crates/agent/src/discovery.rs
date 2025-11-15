@@ -1,6 +1,4 @@
 use libp2p::{futures::lock::Mutex, PeerId};
-use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 use std::{
     collections::HashMap,
     error::Error,
@@ -10,53 +8,12 @@ use std::{
 };
 use tokio::{net::UdpSocket, time};
 
+use crate::peer_info::{PeerInfo, PeerInfoWire};
+
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(2);
 const PEER_TIMEOUT: Duration = Duration::from_secs(5);
 const MULTICAST_ADDR: &str = "224.0.0.251:5353";
 const MAGIC_HEADER: &[u8; 4] = b"SPAR";
-
-/// in-memory representation
-#[derive(Debug, Clone)]
-pub struct PeerInfo {
-    pub addr: SocketAddr,
-    pub peer_id: PeerId,
-    pub spare_mbs: u64,
-    pub price: f32,
-}
-
-/// wire representation
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerInfoWire {
-    pub addr: SocketAddr,
-    pub peer_id_bytes: ByteBuf,
-    pub spare_mbs: u64,
-    pub price: f32,
-}
-
-/// convert PeerInfo into PeerInfoWire (in-memory -> wire)
-impl From<PeerInfo> for PeerInfoWire {
-    fn from(pi: PeerInfo) -> Self {
-        PeerInfoWire {
-            addr: pi.addr,
-            peer_id_bytes: ByteBuf::from(pi.peer_id.to_bytes()),
-            spare_mbs: pi.spare_mbs,
-            price: pi.price,
-        }
-    }
-}
-
-/// convert PeerInfoWire into PeerInfo (wire -> in-memory)
-impl TryFrom<PeerInfoWire> for PeerInfo {
-    type Error = libp2p::identity::ParseError;
-    fn try_from(w: PeerInfoWire) -> Result<Self, Self::Error> {
-        Ok(PeerInfo {
-            addr: w.addr,
-            peer_id: PeerId::from_bytes(&w.peer_id_bytes)?,
-            spare_mbs: w.spare_mbs,
-            price: w.price,
-        })
-    }
-}
 
 #[derive(Debug)]
 pub struct DiscoveryService {

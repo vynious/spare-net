@@ -1,24 +1,12 @@
 use anyhow::{Context, Error, Result};
 use quinn::{Endpoint, ServerConfig};
 use rustls::{crypto::ring, pki_types::PrivateKeyDer};
-use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Once};
 
-use crate::discovery::PeerInfoWire;
-
-/// Number of bytes in one mebibyte (MiB).
-pub const BYTES_PER_MEBIBYTE: u64 = 1024 * 1024;
+use crate::deal::Deal;
 
 #[cfg(test)]
 use {libp2p::PeerId, quinn::crypto::rustls::QuicClientConfig, std::sync::Arc};
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Deal {
-    pub peer_info_wire: PeerInfoWire,
-    /// File length in bytes.
-    pub file_len: u64,
-    pub price_per_mb: f32,
-}
 
 fn ensure_crypto_provider() {
     static INIT: Once = Once::new();
@@ -174,6 +162,7 @@ mod tests {
     use serde_bytes::ByteBuf;
 
     use super::*;
+    use crate::{deal::BYTES_PER_MEBIBYTE, peer_info::PeerInfoWire};
 
     #[tokio::test]
     #[ignore = "requires local QUIC handshake"]

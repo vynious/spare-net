@@ -5,10 +5,10 @@ use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 use crate::{
-    connection::{
-        open_receiver_endpoint, open_sender_endpoint, receive, send, Deal, BYTES_PER_MEBIBYTE,
-    },
-    discovery::{DiscoveryService, PeerInfo},
+    connection::{open_receiver_endpoint, open_sender_endpoint, receive, send},
+    deal::{Deal, BYTES_PER_MEBIBYTE},
+    discovery::DiscoveryService,
+    peer_info::PeerInfo,
 };
 
 pub struct Agent {
@@ -126,7 +126,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
     use tokio::time;
 
-    use crate::{connection::BYTES_PER_MEBIBYTE, discovery::PeerInfoWire};
+    use crate::{deal::BYTES_PER_MEBIBYTE, peer_info::PeerInfoWire};
 
     use super::*;
 
