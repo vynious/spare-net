@@ -170,13 +170,23 @@ impl DiscoveryService {
         }
     }
 
-    /// retrieve the existing peers in the discovery service
-    pub async fn get_peers(&self) -> Vec<PeerInfo> {
+    /// Give callers read-only access to the peer map without cloning.
+    pub async fn with_peers<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&HashMap<PeerId, (PeerInfo, Instant)>) -> R,
+    {
         let peers_map = self.peers.lock().await;
-        peers_map
-            .iter()
-            .map(|(_peer_id, (peer_info, _instant))| peer_info.clone())
-            .collect()
+        f(&*peers_map)
+    }
+
+    /// Retrieve the current peers by cloning the entries into a Vec.
+    pub async fn get_peers(&self) -> Vec<PeerInfo> {
+        self.with_peers(|map| {
+            map.values()
+                .map(|(peer_info, _instant)| peer_info.clone())
+                .collect()
+        })
+        .await
     }
 }
 

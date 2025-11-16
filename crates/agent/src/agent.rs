@@ -69,19 +69,32 @@ impl Agent {
     }
 
     pub async fn send_matched_deals(&self, deal: Deal) {
-        let peers = self.discovery.get_peers().await;
-        let send_tasks = peers.into_iter().map(|peer| {
+        let matched_peers = self
+            .discovery
+            .with_peers(|peers| {
+                peers
+                    .values()
+                    .filter_map(|(peer, _instant)| {
+                        if self.deal_match(peer, &deal) {
+                            Some(peer.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await;
+
+        let send_tasks = matched_peers.into_iter().map(|peer| {
             let deal = deal.clone();
             let sep = self.sender_endpoint.clone();
             async move {
-                if self.deal_match(&peer, &deal) {
-                    info!(
-                        "sending matched deal to peer {} at {}",
-                        peer.peer_id, peer.addr
-                    );
-                    if let Err(err) = send(&sep, peer.addr, deal).await {
-                        warn!("failed to send deal to {}: {err}", peer.peer_id);
-                    }
+                info!(
+                    "sending matched deal to peer {} at {}",
+                    peer.peer_id, peer.addr
+                );
+                if let Err(err) = send(&sep, peer.addr, deal).await {
+                    warn!("failed to send deal to {}: {err}", peer.peer_id);
                 }
             }
         });
